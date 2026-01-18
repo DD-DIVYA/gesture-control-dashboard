@@ -4,6 +4,7 @@ opencv-python-headless>=4.8.0  # Headless version for cloud deployment
 mediapipe>=0.10.0
 websockets>=11.0
 numpy>=1.24.0
+aiohttp>=3.8.0  # HTTP server for cloud health checks
 
 # New dependencies for enhanced tracking
 ultralytics>=8.0.0  # YOLOv8

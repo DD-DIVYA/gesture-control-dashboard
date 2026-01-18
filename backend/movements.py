@@ -11,6 +11,8 @@ import numpy as np
 import os
 from threading import Thread, Event, Lock
 from scipy.spatial.distance import euclidean
+from aiohttp import web
+import aiohttp
 
 # Try to import YOLOv8, fallback to MediaPipe if not available
 try:
@@ -1108,8 +1110,11 @@ async def broadcast_to_clients(message):
         dead_clients = []
         for client in connected_clients:
             try:
-                await client.send(json.dumps(message))
-            except websockets.ConnectionClosed:
+                if hasattr(client, 'send_str'):  # aiohttp WebSocket
+                    await client.send_str(json.dumps(message))
+                else:  # websockets library
+                    await client.send(json.dumps(message))
+            except (ConnectionResetError, ConnectionAbortedError):
                 dead_clients.append(client)
             except Exception as e:
                 log.error(f"Error sending to client: {e}")
@@ -1122,7 +1127,7 @@ async def broadcast_to_clients(message):
 # ================= Main =================
 async def main():
     if IS_CLOUD:
-        # Cloud deployment: Run as WebSocket server
+        # Cloud deployment: Run as WebSocket server with HTTP health check
         log.info(f"🌩️ Starting cloud WebSocket server on {HOST}:{PORT}")
         
         # Create a mock WebSocket client for camera loop
@@ -1139,10 +1144,57 @@ async def main():
         camera_thread = Thread(target=camera_loop, args=(ws_client,), daemon=True)
         camera_thread.start()
         
-        # Start WebSocket server
-        async with websockets.serve(handle_client, HOST, PORT):
-            log.info(f"✅ WebSocket server started on ws://{HOST}:{PORT}")
+        # Create HTTP server for health checks
+        app = web.Application()
+        
+        async def health_check(request):
+            return web.json_response({
+                "status": "healthy",
+                "service": "gesture-control-backend",
+                "clients": len(connected_clients),
+                "mode": "cloud"
+            })
+            
+        async def websocket_handler(request):
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            
+            connected_clients.add(ws)
+            try:
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        # Broadcast message to other clients
+                        data = msg.data
+                        await broadcast_to_clients(json.loads(data) if data else {})
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        log.error(f'WebSocket error: {ws.exception()}')
+            except Exception as e:
+                log.error(f"WebSocket error: {e}")
+            finally:
+                connected_clients.discard(ws)
+            
+            return ws
+        
+        app.router.add_get('/', health_check)
+        app.router.add_get('/health', health_check)  
+        app.router.add_get('/ws', websocket_handler)
+        
+        # Start the combined HTTP + WebSocket server
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, HOST, PORT)
+        await site.start()
+        
+        log.info(f"✅ HTTP + WebSocket server started on http://{HOST}:{PORT}")
+        log.info(f"✅ WebSocket available at ws://{HOST}:{PORT}/ws")
+        
+        # Keep server running
+        try:
             await asyncio.Future()  # Run forever
+        except KeyboardInterrupt:
+            log.info("🛑 Server shutdown requested")
+        finally:
+            await runner.cleanup()
             
     else:
         # Local development: Run as WebSocket client
