@@ -1,22 +1,11 @@
-# Enhanced Eye Tracking Requirements
-# Core dependencies (cloud-optimized)
-opencv-python-headless==4.8.1.78
-mediapipe==0.10.9
-websockets>=11.0
+# Enhanced Eye Tracking Requirements - Cloud Optimized
+opencv-python-headless>=4.8.0
+mediapipe>=0.10.30
+aiohttp>=3.8.0
 numpy>=1.24.0
-aiohttp>=3.8.0  # HTTP server for cloud health checks
+websockets>=11.0
 
-# New dependencies for enhanced tracking
-ultralytics>=8.0.0  # YOLOv8
-scipy>=1.10.0      # For distance calculations
-torch>=2.0.0       # Required by YOLOv8 (will auto-install appropriate version)
-torchvision>=0.15.0 # Computer vision for PyTorch
-
-# Optional but recommended
-matplotlib>=3.7.0  # For plotting and debugging
-pillow>=9.5.0      # Image processing
-requests>=2.30.0   # For model downloads
-
-# Development dependencies (optional)
-pytest>=7.0.0      # For testing
+# Optional for enhanced features (will gracefully fallback if missing)
+ultralytics>=8.0.0
+scipy>=1.10.0
 black>=23.0.0      # Code formatting
