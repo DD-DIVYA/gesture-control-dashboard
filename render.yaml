@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: gesture-control-backend
+    env: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python ws_server.py
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHON_VERSION 
+        value: 3.11.0
+      - key: WS_HOST
+        value: 0.0.0.0
+    disk:
+      name: models
+      mountPath: /opt/render/project/src/models
+      sizeGB: 1
