@@ -71,16 +71,32 @@ MODE_WHEELCHAIR = "WHEELCHAIR"
 MODE_PLACE = "PLACE"
 
 # ================= Enhanced Eye Tracking =================
-# Initialize MediaPipe with error handling for cloud
+# Initialize MediaPipe with robust error handling for cloud
 try:
-    mp_face_mesh = mp.solutions.face_mesh
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
-except AttributeError as e:
-    print(f"MediaPipe initialization error: {e}")
-    print("Attempting alternative MediaPipe initialization...")
-    import mediapipe.python.solutions.face_mesh as face_mesh_module
-    mp_face_mesh = face_mesh_module
+    import mediapipe.solutions.face_mesh as face_mesh_mp
+    import mediapipe.solutions.drawing_utils as drawing_utils_mp
+    import mediapipe.solutions.drawing_styles as drawing_styles_mp
+    mp_face_mesh = face_mesh_mp
+    mp_drawing = drawing_utils_mp
+    mp_drawing_styles = drawing_styles_mp
+    MEDIAPIPE_AVAILABLE = True
+    print("✅ MediaPipe loaded successfully")
+except (AttributeError, ImportError) as e:
+    print(f"❌ MediaPipe initialization error: {e}")
+    try:
+        # Fallback: Try direct import
+        mp_face_mesh = mp.solutions.face_mesh
+        mp_drawing = mp.solutions.drawing_utils  
+        mp_drawing_styles = mp.solutions.drawing_styles
+        MEDIAPIPE_AVAILABLE = True
+        print("✅ MediaPipe loaded via fallback")
+    except (AttributeError, ImportError) as e2:
+        print(f"❌ MediaPipe fallback failed: {e2}")
+        print("🌩️ Running in MediaPipe-free mode for cloud compatibility")
+        MEDIAPIPE_AVAILABLE = False
+        mp_face_mesh = None
+        mp_drawing = None
+        mp_drawing_styles = None
 
 # Enhanced eye landmark indices for better tracking
 LEFT_EYE = (33, 133, 159, 145)  # (outer, inner, upper, lower)
@@ -342,13 +358,18 @@ class YOLOv8EyeTracker:
                 log.warning(f"Failed to load YOLOv8 model: {e}. Falling back to MediaPipe only.")
                 self.yolo_model = None
         
-        # Enhanced MediaPipe face mesh
-        self.face_mesh = mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7
-        )
+        # Enhanced MediaPipe face mesh (with availability check)
+        if MEDIAPIPE_AVAILABLE and mp_face_mesh:
+            self.face_mesh = mp_face_mesh.FaceMesh(
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.7,
+                min_tracking_confidence=0.7
+            )
+            log.info("MediaPipe Face Mesh initialized successfully")
+        else:
+            self.face_mesh = None
+            log.warning("MediaPipe not available - running in simulation mode")
     
     def detect_faces_yolo(self, frame):
         """Use YOLOv8 to detect faces (fallback to MediaPipe if not available)"""
@@ -426,6 +447,10 @@ class YOLOv8EyeTracker:
             'interaction_zone': None,
             'fixation': False
         }
+        
+        # Return default if MediaPipe not available
+        if not MEDIAPIPE_AVAILABLE or not self.face_mesh:
+            return interactions
         
         try:
             # Enhanced blink detection
@@ -510,7 +535,13 @@ class SharedState:
         self.current_gaze_target = None         # Current UI element being gazed at
 
 STATE = SharedState()
-EYE_TRACKER = YOLOv8EyeTracker()
+try:
+    EYE_TRACKER = YOLOv8EyeTracker()
+    log.info("✅ Eye tracker initialized successfully")
+except Exception as e:
+    log.warning(f"❌ Eye tracker initialization failed: {e}")
+    log.info("🌩️ Running in cloud simulation mode")
+    EYE_TRACKER = None
 
 # ================= WebSocket Client =================
 class WSClient:
@@ -763,7 +794,7 @@ def camera_loop(ws_client):
     blink_ctx = {"is_closed": False, "closed_t0": 0.0, "open_ema": None, "thr": None}
     face_detection_fallback = True  # Use MediaPipe as fallback
     
-    log.info(f"Starting camera loop with {'YOLOv8 + MediaPipe' if EYE_TRACKER.yolo_model else 'MediaPipe only'} tracking")
+    log.info(f"Starting camera loop with {'YOLOv8 + MediaPipe' if EYE_TRACKER and EYE_TRACKER.yolo_model else 'MediaPipe only' if EYE_TRACKER else 'Simulation mode'} tracking")
     
     while True:
         ret, frame = cap.read()
@@ -773,14 +804,16 @@ def camera_loop(ws_client):
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Process with enhanced face mesh
-        result = EYE_TRACKER.face_mesh.process(rgb)
+        # Process with enhanced face mesh (if available)
+        result = None
+        if EYE_TRACKER and EYE_TRACKER.face_mesh:
+            result = EYE_TRACKER.face_mesh.process(rgb)
 
         # Try YOLOv8 face detection first, fallback to MediaPipe
         faces_detected = False
         yolo_faces = None
         
-        if EYE_TRACKER.yolo_model and face_detection_fallback:
+        if EYE_TRACKER and EYE_TRACKER.yolo_model and face_detection_fallback:
             yolo_faces = EYE_TRACKER.detect_faces_yolo(frame)
             if yolo_faces:
                 # Draw YOLO face detection boxes for debugging
@@ -790,13 +823,22 @@ def camera_loop(ws_client):
                     cv2.putText(frame, f"Face: {face['confidence']:.2f}", 
                                (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
-        if result.multi_face_landmarks:
+        if result and result.multi_face_landmarks:
             faces_detected = True
             lms = result.multi_face_landmarks[0].landmark
             STATE.last_seen_face = time.time()
             
-            # Enhanced eye interaction detection
-            eye_interactions = EYE_TRACKER.detect_eye_interactions(lms, w, h)
+# Enhanced eye interaction detection (if MediaPipe available)
+        if MEDIAPIPE_AVAILABLE and EYE_TRACKER and EYE_TRACKER.face_mesh:
+        else:
+            # Default interactions for cloud mode
+            eye_interactions = {
+                'blink': False,
+                'saccade': False, 
+                'gaze_point': None,
+                'interaction_zone': None,
+                'fixation': False
+            }
             
             # Log gaze information for debugging
             if eye_interactions['gaze_point'] and SHOW_WINDOW:
@@ -809,19 +851,37 @@ def camera_loop(ws_client):
                 if STATE.calibrate_requested.is_set():
                     STATE.ref_x, STATE.ref_y = lms[NOSE_TIP].x, lms[NOSE_TIP].y
                     STATE.calibrate_requested.clear()
-                    ws_client.emit("CALIBRATED")
+                    if hasattr(ws_client, 'emit'):
+                        ws_client.emit("CALIBRATED")
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            ws_client.send_message({"type": "calibrated"}),
+                            asyncio.new_event_loop()
+                        )
 
                 # Eye baseline reset request
                 if STATE.eye_calibrate_requested.is_set():
                     blink_ctx["open_ema"] = None
                     blink_ctx["thr"] = None
                     STATE.eye_calibrate_requested.clear()
-                    ws_client.emit("CALIBRATED_EYES")
+                    if hasattr(ws_client, 'emit'):
+                        ws_client.emit("CALIBRATED_EYES")
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            ws_client.send_message({"type": "calibrated_eyes"}),
+                            asyncio.new_event_loop()
+                        )
 
                 # First-time head calibration
                 if STATE.ref_x is None or STATE.ref_y is None:
                     STATE.ref_x, STATE.ref_y = lms[NOSE_TIP].x, lms[NOSE_TIP].y
-                    ws_client.emit("CALIBRATED")
+                    if hasattr(ws_client, 'emit'):
+                        ws_client.emit("CALIBRATED")
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            ws_client.send_message({"type": "calibrated"}),
+                            asyncio.new_event_loop()
+                        )
 
                 # ---- Enhanced Eye logic with YOLOv8 + MediaPipe ----
                 # Use enhanced blink detection
