@@ -4,6 +4,8 @@ import { StatusBar } from './components/StatusBar';
 import { WheelchairControls } from './components/WheelchairControls';
 import { PlacesPanel } from './components/PlacesPanel';
 import { NotificationToast } from './components/NotificationToast';
+import { MetricsDashboard } from './components/MetricsDashboard';
+import { BlinkControlStatus } from './components/BlinkControlStatus';
 import { Accessibility } from 'lucide-react';
 
 // Default WebSocket URL - matches Python server
@@ -79,13 +81,63 @@ function App() {
           </div>
         )}
 
+        {/* Mode Status Display */}
+        {state.connected && (
+          <div className="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="text-center">
+              <h3 className="text-lg font-semibold text-blue-900 mb-2">
+                Current Mode: <span className="uppercase">{state.mode}</span>
+              </h3>
+              <div className="text-sm text-blue-700">
+                {state.mode === 'STOP' && (
+                  <p>System is in standby. Use blinks to activate: <strong>1 blink</strong> for wheelchair control, <strong>2 blinks</strong> for place selection.</p>
+                )}
+                {state.mode === 'WHEELCHAIR' && (
+                  <p>Head movement controls active. Use <strong>long blink</strong> to return to STOP.</p>
+                )}
+                {state.mode === 'PLACE' && (
+                  <p>Place selection mode. <strong>1 blink</strong> to navigate, <strong>2 blinks</strong> to select, <strong>long blink</strong> to stop.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* System Metrics Dashboard */}
+        {state.connected && (
+          <div className="mb-8 max-w-7xl mx-auto">
+            <MetricsDashboard
+              batteryPercentage={state.batteryPercentage}
+              motorSpeed={state.motorSpeed}
+              movementIntensity={state.movementIntensity}
+              totalDistance={state.totalDistance}
+              sessionTime={state.sessionTime}
+              faceTracking={state.faceTracking}
+            />
+          </div>
+        )}
+
+        {/* Blink Control Status */}
+        {state.connected && (
+          <div className="mb-8 max-w-md mx-auto">
+            <BlinkControlStatus
+              mode={state.mode}
+              lastDirection={lastHeadDirection}
+              highlightedPlace={state.highlight}
+              selectedPlace={state.selected}
+            />
+          </div>
+        )}
+
         {/* Main Panels */}
         <div className="grid lg:grid-cols-2 gap-8 max-w-7xl mx-auto">
           {/* Wheelchair Controls */}
           <div className="space-y-6">
             <WheelchairControls 
               mode={state.mode} 
-              lastDirection={lastHeadDirection} 
+              lastDirection={lastHeadDirection}
+              motorSpeed={state.motorSpeed}
+              movementIntensity={state.movementIntensity}
             />
           </div>
 
@@ -103,7 +155,7 @@ function App() {
         {/* Footer Info */}
         <div className="mt-12 text-center text-sm text-gray-500">
           <p>
-            Use head movements to control wheelchair direction • Use eye tracking to select destinations
+            Use blinks to control modes • Head movements for wheelchair navigation • Long blink to stop/reset
           </p>
         </div>
       </div>

@@ -2,7 +2,7 @@ import React from 'react';
 import { MapPin, CheckCircle2, Navigation } from 'lucide-react';
 
 interface PlacesPanelProps {
-  mode: 'wheelchair' | 'place';
+  mode: 'STOP' | 'WHEELCHAIR' | 'PLACE';
   rooms: string[];
   highlight: string | null;
   selected: string | null;
@@ -14,7 +14,7 @@ export const PlacesPanel: React.FC<PlacesPanelProps> = ({
   highlight,
   selected,
 }) => {
-  const isActive = mode === 'place';
+  const isActive = mode === 'PLACE';
 
   return (
     <div className={`bg-white rounded-xl shadow-lg p-6 transition-all duration-300 ${
@@ -23,6 +23,24 @@ export const PlacesPanel: React.FC<PlacesPanelProps> = ({
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Places</h2>
         <p className="text-gray-600">Eye-controlled destination selection</p>
+        {isActive && (
+          <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <div className="text-sm text-purple-800 font-semibold mb-1">🎯 Active Controls</div>
+            <div className="text-xs text-purple-600">
+              • <strong>Single blink</strong> → Navigate through places<br/>
+              • <strong>Double blink</strong> → Select highlighted place<br/>
+              • <strong>Long blink</strong> (hold) → Return to STOP mode
+            </div>
+          </div>
+        )}
+        {!isActive && (
+          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+            <div className="text-sm text-gray-600 font-semibold mb-1">⚡ Activation</div>
+            <div className="text-xs text-gray-500">
+              <strong>Double blink</strong> → Activate place selection
+            </div>
+          </div>
+        )}
       </div>
 
       {rooms.length === 0 ? (
@@ -104,7 +122,7 @@ export const PlacesPanel: React.FC<PlacesPanelProps> = ({
             <span className="font-semibold">Ready to go to {selected}</span>
           </div>
           <p className="text-sm text-green-600 mt-1">
-            Blink once more to confirm navigation
+            Blink twice more to navigate to this location
           </p>
         </div>
       )}

@@ -3,7 +3,7 @@ import { Wifi, WifiOff, RotateCcw, Eye, RotateCw } from 'lucide-react';
 
 interface StatusBarProps {
   connected: boolean;
-  mode: 'wheelchair' | 'place';
+  mode: 'STOP' | 'WHEELCHAIR' | 'PLACE';
   onCalibrateHead: () => void;
   onCalibrateEyes: () => void;
   onResetPlaces: () => void;
@@ -41,9 +41,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
           {/* Mode Badge */}
           <div className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${
-            mode === 'wheelchair'
+            mode === 'WHEELCHAIR'
               ? 'bg-blue-100 text-blue-800'
-              : 'bg-purple-100 text-purple-800'
+              : mode === 'PLACE'
+              ? 'bg-purple-100 text-purple-800'
+              : 'bg-gray-100 text-gray-800'
           }`}>
             {mode}
           </div>
