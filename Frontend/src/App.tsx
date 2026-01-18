@@ -8,8 +8,8 @@ import { MetricsDashboard } from './components/MetricsDashboard';
 import { BlinkControlStatus } from './components/BlinkControlStatus';
 import { Accessibility } from 'lucide-react';
 
-// Default WebSocket URL - matches Python server
-const WS_URL = 'ws://localhost:5000';
+// WebSocket URL - updated for cloud deployment
+const WS_URL = import.meta.env.VITE_WS_URL || 'wss://gesture-control-dashboard.onrender.com/ws';
 
 function App() {
   const { state, lastHeadDirection, notifications, sendMessage, connect, removeNotification } = useWebSocket(WS_URL);
