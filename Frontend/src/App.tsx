@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { StatusBar } from './components/StatusBar';
 import { WheelchairControls } from './components/WheelchairControls';
@@ -6,13 +6,16 @@ import { PlacesPanel } from './components/PlacesPanel';
 import { NotificationToast } from './components/NotificationToast';
 import { MetricsDashboard } from './components/MetricsDashboard';
 import { BlinkControlStatus } from './components/BlinkControlStatus';
-import { Accessibility } from 'lucide-react';
+import CameraStream from './components/CameraStream';
+import { Accessibility, Camera, CameraOff } from 'lucide-react';
 
-// WebSocket URL - updated for cloud deployment
+// WebSocket URL - connect to cloud backend for real camera detection
 const WS_URL = import.meta.env.VITE_WS_URL || 'wss://gesture-control-dashboard.onrender.com/ws';
 
 function App() {
   const { state, lastHeadDirection, notifications, sendMessage, connect, removeNotification } = useWebSocket(WS_URL);
+  const [showCamera, setShowCamera] = useState(true);
+  const [faceDetectionData, setFaceDetectionData] = useState<any>(null);
 
   const handleCalibrateHead = () => {
     sendMessage({ event: 'CALIBRATE' });
@@ -24,6 +27,10 @@ function App() {
 
   const handleResetPlaces = () => {
     sendMessage({ event: 'RESET_PLACES' });
+  };
+
+  const handleFaceDetection = (result: any) => {
+    setFaceDetectionData(result);
   };
 
   return (
@@ -128,6 +135,77 @@ function App() {
             />
           </div>
         )}
+
+        {/* Camera and Face Detection Section */}
+        <div className="mb-8 max-w-4xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                <Camera className="w-5 h-5" />
+                Live Camera Feed
+              </h2>
+              <button
+                onClick={() => setShowCamera(!showCamera)}
+                className={`flex items-center gap-2 px-3 py-1 rounded text-sm font-medium ${
+                  showCamera 
+                    ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                }`}
+              >
+                {showCamera ? <CameraOff className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+                {showCamera ? 'Hide Camera' : 'Show Camera'}
+              </button>
+            </div>
+            
+            {showCamera && (
+              <div className="grid md:grid-cols-2 gap-6">
+                <CameraStream
+                  onFaceDetection={handleFaceDetection}
+                  sendMessage={sendMessage}
+                  connected={state.connected}
+                />
+                
+                {/* Face Detection Info */}
+                <div className="space-y-4">
+                  <h3 className="font-medium text-gray-900">Face Detection Status</h3>
+                  
+                  <div className={`p-3 rounded-lg ${
+                    faceDetectionData?.faces_detected 
+                      ? 'bg-green-50 border border-green-200'
+                      : 'bg-red-50 border border-red-200'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={`w-3 h-3 rounded-full ${
+                        faceDetectionData?.faces_detected ? 'bg-green-500' : 'bg-red-500'
+                      }`} />
+                      <span className="font-medium">
+                        {faceDetectionData?.faces_detected ? 'Face Detected!' : 'Looking for face...'}
+                      </span>
+                    </div>
+                    
+                    {faceDetectionData && (
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <div>Faces found: {faceDetectionData.face_count || 0}</div>
+                        <div>Status: {faceDetectionData.status}</div>
+                        {faceDetectionData.faces && faceDetectionData.faces.length > 0 && (
+                          <div>
+                            Confidence: {(faceDetectionData.faces[0].confidence * 100).toFixed(1)}%
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-gray-500">
+                    <p>• Face detection is processed in real-time</p>
+                    <p>• Your video data is processed securely in the cloud</p>
+                    <p>• No video data is stored or recorded</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Main Panels */}
         <div className="grid lg:grid-cols-2 gap-8 max-w-7xl mx-auto">
