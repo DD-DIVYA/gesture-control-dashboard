@@ -8,6 +8,7 @@ import logging
 import random
 import math
 import numpy as np
+import os
 from threading import Thread, Event, Lock
 from scipy.spatial.distance import euclidean
 
@@ -20,10 +21,15 @@ except ImportError:
     YOLO_AVAILABLE = False
 
 # ================== CONFIG ==================
-WS_SERVER_URL = "ws://localhost:5000"
+# Cloud deployment configuration
+PORT = int(os.environ.get('PORT', 5000))
+HOST = os.environ.get('HOST', '0.0.0.0')
+IS_CLOUD = os.environ.get('RENDER', False) or os.environ.get('RAILWAY_ENVIRONMENT', False)
 
-# GUI preview
-SHOW_WINDOW = True
+WS_SERVER_URL = f"ws://{HOST}:{PORT}" if not IS_CLOUD else f"ws://localhost:{PORT}"
+
+# GUI preview (disable in cloud)
+SHOW_WINDOW = not IS_CLOUD
 WINDOW_NAME = "Gesture Controls (q quit, c head-cal, e eye-cal, m toggle-mode)"
 
 # Logging
@@ -65,7 +71,16 @@ MODE_WHEELCHAIR = "WHEELCHAIR"
 MODE_PLACE = "PLACE"
 
 # ================= Enhanced Eye Tracking =================
-mp_face_mesh = mp.solutions.face_mesh
+# Initialize MediaPipe with error handling for cloud
+try:
+    mp_face_mesh = mp.solutions.face_mesh
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+except AttributeError as e:
+    print(f"MediaPipe initialization error: {e}")
+    print("Attempting alternative MediaPipe initialization...")
+    import mediapipe.python.solutions.face_mesh as face_mesh_module
+    mp_face_mesh = face_mesh_module
 
 # Enhanced eye landmark indices for better tracking
 LEFT_EYE = (33, 133, 159, 145)  # (outer, inner, upper, lower)
@@ -694,10 +709,48 @@ def map_head_direction(landmarks, ref_x, ref_y, thr_enter=HEAD_THR_ENTER, thr_ex
     return None
 
 # ================= Camera Loop =================
-def camera_loop(ws_client: WSClient):
+def camera_loop(ws_client):
+    if IS_CLOUD:
+        # Cloud simulation mode - no actual camera
+        log.info("🌩️ Running in cloud simulation mode (no camera access)")
+        
+        # Send periodic status updates to keep connection alive
+        while True:
+            try:
+                # Simulate system status
+                status_data = {
+                    "type": "system_status",
+                    "mode": STATE.current_mode,
+                    "battery": random.randint(70, 100),
+                    "signal": "excellent",
+                    "speed": 0,
+                    "direction": "stopped",
+                    "simulation": True
+                }
+                
+                if hasattr(ws_client, 'send_message'):
+                    asyncio.run_coroutine_threadsafe(
+                        ws_client.send_message(status_data), 
+                        asyncio.new_event_loop()
+                    )
+                
+                time.sleep(5)  # Update every 5 seconds
+                
+            except Exception as e:
+                log.error(f"Cloud simulation error: {e}")
+                time.sleep(10)
+        return
+    
+    # Local mode - use actual camera
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        ws_client.emit("ERROR", {"message": "Camera not available"})
+        if hasattr(ws_client, 'emit'):
+            ws_client.emit("ERROR", {"message": "Camera not available"})
+        else:
+            asyncio.run_coroutine_threadsafe(
+                ws_client.send_message({"type": "error", "message": "Camera not available"}),
+                asyncio.new_event_loop()
+            )
         if LOG_TO_CONSOLE:
             log.error("Camera not available")
         return
@@ -972,46 +1025,103 @@ def camera_loop(ws_client: WSClient):
     if SHOW_WINDOW:
         cv2.destroyAllWindows()
 
-# ================= Main =================
-async def main():
-    # Create WebSocket client
-    ws_client = WSClient(WS_SERVER_URL)
-    ws_client.loop = asyncio.get_event_loop()
-    
-    # Start camera loop in a separate thread
-    camera_thread = Thread(target=camera_loop, args=(ws_client,), daemon=True)
-    camera_thread.start()
-    
-    log.info("Movement detection client started. Press Ctrl+C to exit.")
+# ================= WebSocket Server for Cloud =================
+connected_clients = set()
+
+async def handle_client(websocket, path):
+    """Handle WebSocket client connections"""
+    connected_clients.add(websocket)
+    client_address = websocket.remote_address
+    log.info(f"✅ Client connected: {client_address}")
     
     try:
-        while True:
-            try:
-                # Try to connect
-                await ws_client.connect()
-                
-                # Start listening for messages (this will block until connection is lost)
-                await ws_client.start_listening()
-                
-            except websockets.ConnectionClosed:
-                log.warning("Connection closed by server")
-                ws_client.connected = False
-                STATE.connected = False
-                
-            except Exception as e:
-                log.error(f"Connection error: {e}")
-                ws_client.connected = False
-                STATE.connected = False
-                
-            # Wait before attempting to reconnect
-            if not ws_client.connected:
-                log.warning("Lost connection to server, attempting to reconnect...")
-                await asyncio.sleep(2)
-                
-    except KeyboardInterrupt:
-        log.info("Shutting down...")
+        await websocket.wait_closed()
+    except websockets.ConnectionClosed:
+        log.info(f"🔌 Client disconnected: {client_address}")
     finally:
-        await ws_client.disconnect()
+        connected_clients.discard(websocket)
+
+async def broadcast_to_clients(message):
+    """Broadcast message to all connected clients"""
+    if connected_clients:
+        dead_clients = []
+        for client in connected_clients:
+            try:
+                await client.send(json.dumps(message))
+            except websockets.ConnectionClosed:
+                dead_clients.append(client)
+            except Exception as e:
+                log.error(f"Error sending to client: {e}")
+                dead_clients.append(client)
+        
+        # Remove dead clients
+        for client in dead_clients:
+            connected_clients.discard(client)
+
+# ================= Main =================
+async def main():
+    if IS_CLOUD:
+        # Cloud deployment: Run as WebSocket server
+        log.info(f"🌩️ Starting cloud WebSocket server on {HOST}:{PORT}")
+        
+        # Create a mock WebSocket client for camera loop
+        class MockWSClient:
+            def __init__(self):
+                self.connected = True
+            
+            async def send_message(self, message):
+                await broadcast_to_clients(message)
+        
+        ws_client = MockWSClient()
+        
+        # Start camera loop in a separate thread
+        camera_thread = Thread(target=camera_loop, args=(ws_client,), daemon=True)
+        camera_thread.start()
+        
+        # Start WebSocket server
+        async with websockets.serve(handle_client, HOST, PORT):
+            log.info(f"✅ WebSocket server started on ws://{HOST}:{PORT}")
+            await asyncio.Future()  # Run forever
+            
+    else:
+        # Local development: Run as WebSocket client
+        ws_client = WSClient(WS_SERVER_URL)
+        ws_client.loop = asyncio.get_event_loop()
+        
+        # Start camera loop in a separate thread
+        camera_thread = Thread(target=camera_loop, args=(ws_client,), daemon=True)
+        camera_thread.start()
+        
+        log.info("Movement detection client started. Press Ctrl+C to exit.")
+        
+        try:
+            while True:
+                try:
+                    # Try to connect
+                    await ws_client.connect()
+                    
+                    # Start listening for messages (this will block until connection is lost)
+                    await ws_client.start_listening()
+                    
+                except websockets.ConnectionClosed:
+                    log.warning("Connection closed by server")
+                    ws_client.connected = False
+                    STATE.connected = False
+                    
+                except Exception as e:
+                    log.error(f"Connection error: {e}")
+                    ws_client.connected = False
+                    STATE.connected = False
+                    
+                # Wait before attempting to reconnect
+                if not ws_client.connected:
+                    log.warning("Lost connection to server, attempting to reconnect...")
+                    await asyncio.sleep(2)
+                    
+        except KeyboardInterrupt:
+            log.info("Shutting down...")
+        finally:
+            await ws_client.disconnect()
 
 if __name__ == "__main__":
     try:
