@@ -187,6 +187,7 @@ async def websocket_handler(request):
 
 async def broadcast_message(data, exclude=None):
     """Broadcast message to all connected clients except the sender"""
+    global connected_clients
     if not connected_clients:
         return
     
@@ -213,6 +214,7 @@ async def health_check(request):
 
 # Background status broadcaster
 async def status_broadcaster():
+    global connected_clients
     while True:
         await asyncio.sleep(5)
         if connected_clients:
