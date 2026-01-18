@@ -828,17 +828,18 @@ def camera_loop(ws_client):
             lms = result.multi_face_landmarks[0].landmark
             STATE.last_seen_face = time.time()
             
-# Enhanced eye interaction detection (if MediaPipe available)
-        if MEDIAPIPE_AVAILABLE and EYE_TRACKER and EYE_TRACKER.face_mesh:
-        else:
-            # Default interactions for cloud mode
-            eye_interactions = {
-                'blink': False,
-                'saccade': False, 
-                'gaze_point': None,
-                'interaction_zone': None,
-                'fixation': False
-            }
+            # Enhanced eye interaction detection (if MediaPipe available)
+            if MEDIAPIPE_AVAILABLE and EYE_TRACKER and EYE_TRACKER.face_mesh:
+                eye_interactions = EYE_TRACKER.detect_eye_interactions(lms, w, h)
+            else:
+                # Default interactions for cloud mode
+                eye_interactions = {
+                    'blink': False,
+                    'saccade': False, 
+                    'gaze_point': None,
+                    'interaction_zone': None,
+                    'fixation': False
+                }
             
             # Log gaze information for debugging
             if eye_interactions['gaze_point'] and SHOW_WINDOW:
