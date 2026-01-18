@@ -14,32 +14,72 @@ HOST = '0.0.0.0'
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("GestureControl")
 
-# Try to import MediaPipe for face detection
+# Try to import MediaPipe for face detection with robust error handling
+MEDIAPIPE_AVAILABLE = False
+mp_face_detection = None
+mp_drawing = None
+
 try:
     import mediapipe as mp
-    mp_face_detection = mp.solutions.face_detection
-    mp_drawing = mp.solutions.drawing_utils
-    MEDIAPIPE_AVAILABLE = True
-    log.info("✅ MediaPipe loaded for face detection")
+    # Try multiple import methods for cloud compatibility
+    try:
+        mp_face_detection = mp.solutions.face_detection
+        mp_drawing = mp.solutions.drawing_utils
+        MEDIAPIPE_AVAILABLE = True
+        log.info("✅ MediaPipe loaded via solutions")
+    except AttributeError:
+        try:
+            # Alternative import method
+            from mediapipe.python.solutions import face_detection as mp_face_detection
+            from mediapipe.python.solutions import drawing_utils as mp_drawing
+            MEDIAPIPE_AVAILABLE = True
+            log.info("✅ MediaPipe loaded via python.solutions")
+        except ImportError:
+            log.warning("❌ MediaPipe solutions not accessible - face detection disabled")
 except ImportError:
-    MEDIAPIPE_AVAILABLE = False
-    log.warning("❌ MediaPipe not available - running without face detection")
+    log.warning("❌ MediaPipe not installed - face detection disabled")
+
+if MEDIAPIPE_AVAILABLE:
+    log.info("✅ Face detection enabled")
+else:
+    log.info("🌩️ Running in cloud simulation mode without face detection")
 
 # Connected WebSocket clients
 connected_clients = set()
 
 class FaceDetector:
     def __init__(self):
-        if MEDIAPIPE_AVAILABLE:
-            self.face_detection = mp_face_detection.FaceDetection(
-                model_selection=0, min_detection_confidence=0.5)
+        self.face_detection = None
+        if MEDIAPIPE_AVAILABLE and mp_face_detection:
+            try:
+                self.face_detection = mp_face_detection.FaceDetection(
+                    model_selection=0, min_detection_confidence=0.5)
+                log.info("✅ Face detection model initialized")
+            except Exception as e:
+                log.error(f"❌ Failed to initialize face detection: {e}")
+                self.face_detection = None
         else:
-            self.face_detection = None
+            log.info("🌩️ Face detection disabled - will simulate responses")
     
     def detect_faces(self, image_data):
         """Detect faces in base64 image data from browser"""
         if not MEDIAPIPE_AVAILABLE or not self.face_detection:
-            return {"faces_detected": False, "face_count": 0}
+            # Return simulated response when MediaPipe not available
+            return {
+                "faces_detected": True,  # Simulate face detection for demo
+                "face_count": 1,
+                "faces": [{
+                    "confidence": 0.95,
+                    "bbox": {
+                        "x": 0.2,
+                        "y": 0.2,
+                        "width": 0.6,
+                        "height": 0.6
+                    }
+                }],
+                "status": "simulated",
+                "message": "MediaPipe not available - simulated response"
+            }
         
         try:
             # Decode base64 image (remove data:image/jpeg;base64, prefix)
