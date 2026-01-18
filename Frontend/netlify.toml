@@ -1,9 +1,11 @@
 [build]
-  command = "npm run build"
+  base = "Frontend"
+  command = "npm ci && npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
+  NPM_CONFIG_PRODUCTION = "false"
   VITE_WS_URL = "wss://gesture-control-dashboard.onrender.com/ws"
   VITE_API_URL = "https://gesture-control-dashboard.onrender.com"
 
@@ -13,7 +15,7 @@
   status = 200
 
 [context.production]
-  command = "npm run build"
+  command = "npm ci && npm run build"
 
 [context.deploy-preview]
-  command = "npm run build"
+  command = "npm ci && npm run build"
