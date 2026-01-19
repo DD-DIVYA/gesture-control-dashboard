@@ -187,6 +187,15 @@ export const useWebSocket = (url: string) => {
               addNotification('Eye baseline reset', 'success');
               break;
 
+            case 'FACE_STATUS':
+              // Handle face detection status from backend
+              setState(prev => ({
+                ...prev,
+                faceTracking: message.payload?.active || false,
+              }));
+              console.log('👁️ Face detection:', message.payload);
+              break;
+
             case 'BLINK_EVENT':
               // Handle blink event feedback
               const blinkMessage = message.payload?.message;
